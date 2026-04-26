@@ -129,6 +129,13 @@ is divided by 1 000 000.
 
 ---
 
+## Roadmap and decisions log
+
+See `docs/BACKLOG.md` — open work items (tiered by priority) and a decisions log
+recording key architectural choices made across sessions.
+
+---
+
 ## Data output location
 
 `E:\github_awesome\fundamental\edgartools\data\`
