@@ -1,0 +1,6 @@
+edgartools>=4.0.0
+python-dotenv>=1.0.0
+pandas>=2.0.0
+matplotlib>=3.7.0
+yfinance>=0.2.40
+openpyxl>=3.1.0

@@ -1,0 +1,32 @@
+# Secrets
+.env
+
+# Python environment
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Data outputs — generated files, never commit
+data/
+*.parquet
+*.xlsx
+*.csv
+!examples/*.csv
+
+# Excel lock files (created when a workbook is open)
+~$*
+
+# edgartools filing cache (set via EDGAR_LOCAL_DATA_DIR)
+.edgar_cache/
+edgar_cache/
+
+# Personal learning journal (gitignored by convention — see global CLAUDE.md)
+docs/LEARNING.md
