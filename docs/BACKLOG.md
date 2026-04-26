@@ -77,6 +77,15 @@
 
 ## Decisions log
 
+### 2026-04-26 — Add comprehensive income; defer statement of equity
+
+| Decision | Choice | Rationale |
+|---|---|---|
+| Comprehensive income in multi-period | Added as 4th tab in both scripts | Meaningful data (9 rows AMZN, 51 rows TSM); critical for foreign filers where OCI from currency translation is material relative to net income |
+| Statement of equity in multi-period | Deferred — single-period only | XBRLS stitching collapses equity rollforward to ~4 rows because beginning/ending balance rows share XBRL concepts with standalone balance sheet items; rollforward structure only makes sense in a single-period view |
+
+---
+
 ### 2026-04-26 — Initial build session
 
 | Decision | Choice | Rationale |
@@ -86,3 +95,63 @@
 | Form type detection | Auto-detect 10-K then 20-F at runtime | Foreign private issuers (ASML, TSM, GFS, TSEM) file 20-F; hardcoding breaks silently for these |
 | Repo visibility | Public | Portfolio signal for equity analyst transition — combination of financial statement fluency + engineering is differentiated |
 | Excel export library | openpyxl directly (not `pd.ExcelWriter`) | Needed for cell-level formatting: indentation, section header colours, number formats per row |
+
+
+
+----
+
+
+
+## others
+  1. Multi-period history via XBRLS (biggest gap in the current script)
+
+  The current script gets 3 years from a single 10-K. For modelling you want 5–10 years. The docs show:
+
+  from edgar.xbrl import XBRLS
+
+  filings = company.get_filings(form="10-K", amendments=False).head(5)
+  xbrls = XBRLS.from_filings(filings)
+  income = xbrls.statements.income_statement()   # aligned across all 5 filings
+
+  This stitches multiple 10-Ks into a single time-series-aligned statement — far more useful for trend analysis and DCF inputs than a single filing.
+
+  ---
+  2. Quarterly data for earnings momentum
+
+  quarterly = company.get_quarterly_financials()
+  q_income = quarterly.income_statement()
+
+  Critical for any YoY / QoQ growth signal or earnings surprise model.
+
+  ---
+  3. Convenience metric accessors with period_offset
+
+  Instead of parsing the DataFrame manually for a known line item:
+
+  revenue      = financials.get_revenue()           # current period
+  revenue_prev = financials.get_revenue(period_offset=1)  # prior period
+
+  # Other ready-made methods:
+  # get_net_income(), get_operating_income(), get_free_cash_flow(),
+  # get_total_assets(), get_total_liabilities(), get_stockholders_equity(),
+  # get_operating_cash_flow(), get_capital_expenditures(),
+  # get_current_assets(), get_current_liabilities()
+
+  Useful for quickly building a metrics table across a universe of tickers without wrangling the full DataFrame every time.
+
+  ---
+  4. view="detailed" for segment-level data
+
+  The current standard view is right for the Excel display. For modelling, detailed gives you dimensional breakdowns (Products / Services / Geographic
+  segments) that standard suppresses:
+
+  df = income.to_dataframe(view="detailed")
+  # rows with dimension=True are the segment splits
+
+  ---
+  5. Two extra statements the current script skips
+
+  equity = financials.statement_of_equity()      # retained earnings, buybacks, AOCI
+  comp   = financials.comprehensive_income()     # OCI items (currency, pension, hedges)
+
+  Both matter for a complete balance-sheet model (e.g. reconciling equity movements, FX exposure).

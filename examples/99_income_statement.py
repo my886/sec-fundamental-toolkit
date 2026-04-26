@@ -59,14 +59,27 @@ def _num_fmt(row: pd.Series, period_cols: list[str]) -> str:
 
 def write_statement_sheet(wb: Workbook, stmt, sheet_title: str) -> None:
     df = stmt.to_dataframe(view="standard")
-    periods = _period_cols(df)
+    periods = sorted(_period_cols(df))
     min_lvl = int(df["level"].min())
-    n_cols = 1 + len(periods)          # label col + one col per period
+    n_cols = 2 + len(periods)   # label | standard_concept | period...
+
+    # Coerce and scale to USD millions (skip per-share rows: max(abs) < 1 000)
+    for c in periods:
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+    for idx, row in df.iterrows():
+        if row["abstract"]:
+            continue
+        vals = [row[c] for c in periods if pd.notna(row[c])]
+        if vals and max(abs(v) for v in vals) >= 1_000:
+            for c in periods:
+                if pd.notna(df.at[idx, c]):
+                    df.at[idx, c] = df.at[idx, c] / 1_000_000
 
     ws = wb.create_sheet(title=sheet_title[:31])
 
     # ── Title row ──────────────────────────────────────────────────────────
-    ws.append([sheet_title] + [""] * len(periods))
+    title_text = f"{sheet_title}  (USD Millions)"
+    ws.append([title_text] + [""] * (n_cols - 1))
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols)
     title_cell = ws.cell(1, 1)
     title_cell.font  = Font(bold=True, color=CLR_WHITE, size=12)
@@ -75,13 +88,13 @@ def write_statement_sheet(wb: Workbook, stmt, sheet_title: str) -> None:
     ws.row_dimensions[1].height = 20
 
     # ── Period header row ──────────────────────────────────────────────────
-    ws.append([""] + periods)
+    ws.append(["Label", "Standard Concept"] + periods)
     for col_idx in range(1, n_cols + 1):
         cell = ws.cell(2, col_idx)
         cell.font  = Font(bold=True, color=CLR_WHITE, size=10)
         cell.fill  = PatternFill("solid", fgColor=CLR_HEADER_BG)
         cell.alignment = Alignment(
-            horizontal="right" if col_idx > 1 else "left",
+            horizontal="right" if col_idx > 2 else "left",
             vertical="center",
             indent=1,
         )
@@ -90,14 +103,17 @@ def write_statement_sheet(wb: Workbook, stmt, sheet_title: str) -> None:
 
     # ── Data rows ──────────────────────────────────────────────────────────
     for _, row in df.iterrows():
-        indent = int(row["level"]) - min_lvl
-        label  = ("  " * indent) + str(row["label"])
-        values = [None if row["abstract"] else row[c] for c in periods]
-        ws.append([label] + values)
-
-        data_row = ws.max_row
+        indent       = int(row["level"]) - min_lvl
+        label        = ("  " * indent) + str(row["label"])
+        std_con      = str(row.get("standard_concept", "") or "")
         is_abstract  = bool(row["abstract"])
         is_dimension = bool(row["dimension"])
+        values       = [None if is_abstract else (row[c] if pd.notna(row[c]) else None)
+                        for c in periods]
+        ws.append([label, std_con] + values)
+
+        data_row = ws.max_row
+        fmt = _num_fmt(row, periods)
 
         # Label cell style
         lbl_cell = ws.cell(data_row, 1)
@@ -108,6 +124,11 @@ def write_statement_sheet(wb: Workbook, stmt, sheet_title: str) -> None:
             color=CLR_DARK,
         )
         lbl_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=False)
+
+        # Standard concept cell
+        sc_cell = ws.cell(data_row, 2)
+        sc_cell.font      = Font(size=9, color="666666")
+        sc_cell.alignment = Alignment(horizontal="left", vertical="center")
 
         # Row background
         if is_abstract:
@@ -122,8 +143,7 @@ def write_statement_sheet(wb: Workbook, stmt, sheet_title: str) -> None:
                 ws.cell(data_row, c).fill = bg
 
         # Value cell style
-        fmt = _num_fmt(row, periods)
-        for col_idx, c in enumerate(periods, 2):
+        for col_idx, c in enumerate(periods, 3):
             cell = ws.cell(data_row, col_idx)
             if not is_abstract and pd.notna(row[c]):
                 cell.number_format = fmt
@@ -134,10 +154,11 @@ def write_statement_sheet(wb: Workbook, stmt, sheet_title: str) -> None:
         ws.row_dimensions[data_row].height = 15
 
     # ── Column widths + freeze ─────────────────────────────────────────────
-    ws.column_dimensions["A"].width = 58
-    for i, _ in enumerate(periods):
-        ws.column_dimensions[chr(ord("B") + i)].width = 20
-    ws.freeze_panes = ws.cell(3, 2)   # freeze title + header rows, label col
+    ws.column_dimensions["A"].width = 52
+    ws.column_dimensions["B"].width = 26
+    for i in range(len(periods)):
+        ws.column_dimensions[chr(ord("C") + i)].width = 20
+    ws.freeze_panes = ws.cell(3, 3)   # freeze title + header rows, label + concept cols
 
 
 # ── Main ────────────────────────────────────────────────────────────────────
@@ -148,7 +169,7 @@ pd.set_option("display.max_rows", 80)
 pd.set_option("display.width", 180)
 pd.set_option("display.float_format", lambda x: f"{x:,.0f}")
 
-TICKER = "AMZN"
+TICKER = "TSLA"
 company = Company(TICKER)
 step(f"Looked up {company.name} ({TICKER}) CIK {company.cik}", t_start)
 
@@ -165,11 +186,14 @@ step("Extracting Balance Sheet...", t_start)
 balance = financials.balance_sheet()
 step("Extracting Cash Flow Statement...", t_start)
 cashflow = financials.cashflow_statement()
+step("Extracting Comprehensive Income...", t_start)
+comp_income = financials.comprehensive_income()
 
 statements = {
-    "Income Statement": income,
-    "Balance Sheet":    balance,
-    "Cash Flow":        cashflow,
+    "Income Statement":    income,
+    "Balance Sheet":       balance,
+    "Cash Flow":           cashflow,
+    "Comprehensive Income": comp_income,
 }
 
 # --- Print each to console ---

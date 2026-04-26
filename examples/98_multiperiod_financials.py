@@ -15,6 +15,7 @@ Run from the repo root:
     cd E:\github_awesome\fundamental\edgartools
     uv run python examples\98_multiperiod_financials.py
 """
+import concurrent.futures
 import os
 import re
 import time
@@ -31,8 +32,9 @@ from edgar import Company
 from edgar.xbrl import XBRLS
 
 # ── Configuration ────────────────────────────────────────────────────────────
-TICKER = "SPOT"
+TICKER = "MU"
 YEARS  = 5      # number of annual filings to stitch (older filings may lack XBRL)
+OPTIONAL_STMT_TIMEOUT = 60   # seconds before giving up on an optional statement
 
 # ── Colour palette ───────────────────────────────────────────────────────────
 CLR_TITLE_BG   = "2F5496"
@@ -64,6 +66,26 @@ def _fy_label(date_str: str) -> str:
     return f"FY{date_str[:4]}"
 
 
+class _FallbackStmt:
+    """Wraps a single-filing Statement so _prepare_structured_df treats it like stitched output.
+
+    XBRLS stitching can hang on large IFRS 20-F filings (e.g. ASML comprehensive income).
+    When it times out we fall back to the single latest filing; this wrapper normalises
+    the period column names from '2025-09-27 (FY)' to '2025-09-27' so _period_cols() matches.
+    """
+    def __init__(self, stmt):
+        self._stmt = stmt
+
+    def to_dataframe(self):
+        df = self._stmt.to_dataframe(view="standard")
+        rename = {
+            col: re.match(r"(\d{4}-\d{2}-\d{2})", col).group(1)
+            for col in df.columns
+            if re.match(r"\d{4}-\d{2}-\d{2}", col) and not re.match(r"\d{4}-\d{2}-\d{2}$", col)
+        }
+        return df.rename(columns=rename)
+
+
 def _is_total_row(label: str) -> bool:
     low = label.strip().lower()
     return any(kw in low for kw in TOTAL_KEYWORDS)
@@ -86,7 +108,7 @@ def _prepare_structured_df(
 
     # ── Stitched: multi-period values ─────────────────────────────────────
     stitched = stitched_stmt.to_dataframe()
-    period_cols = _period_cols(stitched)
+    period_cols = sorted(_period_cols(stitched))
 
     for c in period_cols:
         stitched[c] = pd.to_numeric(stitched[c], errors="coerce")
@@ -292,21 +314,54 @@ step("Stitching XBRL across filings — may take 30-90s the first time...", t_st
 xbrls = XBRLS.from_filings(filings)
 step("XBRLS ready", t_start)
 
-STMT_METHODS = {
+# Core three statements — always included
+CORE_METHODS = {
     "Income Statement": "income_statement",
     "Balance Sheet":    "balance_sheet",
     "Cash Flow":        "cashflow_statement",
 }
 
+# Optional statements — skipped silently if extraction fails or hangs
+# comprehensive_income can block on large IFRS 20-F filings (e.g. ASML)
+OPTIONAL_METHODS = {
+    "Comprehensive Income": "comprehensive_income",
+}
+
 step("Extracting and merging statements...", t_start)
 template_stmts = {
     name: getattr(template_financials, method)()
-    for name, method in STMT_METHODS.items()
+    for name, method in CORE_METHODS.items()
 }
 stitched_stmts = {
     name: getattr(xbrls.statements, method)()
-    for name, method in STMT_METHODS.items()
+    for name, method in CORE_METHODS.items()
 }
+
+for name, method in OPTIONAL_METHODS.items():
+    step(f"Extracting {name} (optional)...", t_start)
+    # Template call is fast — get it outside the timeout
+    try:
+        tmpl_s = getattr(template_financials, method)()
+    except Exception as e:
+        step(f"{name} skipped: template extraction failed: {e}", t_start)
+        continue
+    # Stitching may hang on large IFRS filings — enforce a hard timeout
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(getattr(xbrls.statements, method))
+        try:
+            stch_s = future.result(timeout=OPTIONAL_STMT_TIMEOUT)
+            template_stmts[name] = tmpl_s
+            stitched_stmts[name] = stch_s
+            step(f"{name} OK", t_start)
+        except concurrent.futures.TimeoutError:
+            step(
+                f"{name} latest-only (stitching timed out after {OPTIONAL_STMT_TIMEOUT}s)",
+                t_start,
+            )
+            template_stmts[name] = tmpl_s
+            stitched_stmts[name] = _FallbackStmt(tmpl_s)
+        except Exception as e:
+            step(f"{name} skipped: {e}", t_start)
 
 # Console preview (income statement)
 df_prev, pc_prev, fy_prev = _prepare_structured_df(
@@ -331,7 +386,7 @@ step(f"Writing Excel workbook to {out_path}...", t_start)
 wb = Workbook()
 wb.remove(wb.active)
 
-for sheet_name in STMT_METHODS:
+for sheet_name in template_stmts:
     write_statement_sheet(
         wb,
         template_stmts[sheet_name],
@@ -342,4 +397,5 @@ for sheet_name in STMT_METHODS:
     )
 
 wb.save(out_path)
-step(f"Done. Open {out_path.name} in Excel - three tabs.", t_start)
+n_tabs = len(template_stmts)
+step(f"Done. Open {out_path.name} in Excel - {n_tabs} tab(s).", t_start)
