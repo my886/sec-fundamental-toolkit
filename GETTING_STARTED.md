@@ -3,14 +3,8 @@
 > **Pillar:** Fundamental Analysis & Financial Modelling
 > **Goal fit:** **Core** — gives us free, point-in-time-capable access to every SEC filing (10-K, 10-Q, 8-K, 13F, Form 4 insider trades, S-1, proxy statements). Foundation for any fundamental screen, valuation model, or insider-flow signal applied to SPY/QQQ constituents.
 > **Repo:** https://github.com/dgunning/edgartools
-> **License:** Apache 2.0
+> **License:** MIT
 > **Cost:** Free (SEC EDGAR is a public dataset; no API key required, just a User-Agent identifying you).
-
-> **Attribution:** The scripts in this folder are original work built on top of
-> [edgartools](https://github.com/dgunning/edgartools) by Dwight Gunning,
-> licensed under the [Apache 2.0 License](https://www.apache.org/licenses/LICENSE-2.0).
-> edgartools source code is not included here — it is installed as a dependency
-> via `requirements.txt`.
 
 ## What it does
 Pythonic wrapper around the SEC EDGAR full-text and XBRL endpoints. Lets you pull filings by company / form / date, parse XBRL financials into pandas DataFrames, extract insider transactions, fund holdings, and more — without scraping HTML.

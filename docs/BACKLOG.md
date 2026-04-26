@@ -25,11 +25,19 @@
   Handle mixed 10-K / 20-F peers automatically (reuse form-detection pattern).
   Output: `data/{PEER_GROUP}_comps.xlsx`
 
-- [ ] **`95_quarterly.py` — Quarterly data + LTM**
+- [x] **`95_quarterly.py` — Quarterly data + LTM** ✓ 2026-04-26
   Use `company.get_quarterly_financials()` to pull 10-Q data and build:
-  - LTM revenue and earnings: last annual + last two quarters - same two quarters prior year
+  - LTM revenue and earnings: sum of last 4 pure-quarterly (Qn) periods
   - QoQ and YoY growth rates per line item
   Essential for valuations that need the most recent quarter, not the last annual filing.
+  **Limitation**: 6-K filers (SPOT, ASML, TSM) have no XBRL in interim reports — script
+  raises a clear error. Use yfinance (`yf.Ticker(ticker).quarterly_financials`) for these.
+
+- [ ] **`95b_quarterly_yf.py` — Quarterly data for foreign issuers (yfinance fallback)**
+  Same output format as `95_quarterly.py` but sourced from yfinance instead of EDGAR XBRL.
+  Target tickers: SPOT, ASML, TSM, and any 6-K filer without XBRL interim reports.
+  Key difference: yfinance returns restated numbers, not point-in-time SEC filings.
+  Note that difference clearly in the Excel title row.
 
 ### Tier 2 — Meaningful extensions
 
