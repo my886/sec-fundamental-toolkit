@@ -115,9 +115,21 @@ def _prepare_structured_df(
     stitched_stmt,
 ) -> tuple[pd.DataFrame, list[str]]:
     """Merge single-filing structure with XBRLS multi-period values.
-    Returns (df, period_cols). Values scaled to USD millions."""
-    tmpl     = template_stmt.to_dataframe(view="standard")
-    stitched = stitched_stmt.to_dataframe()
+    Returns (df, period_cols). Values scaled to USD millions.
+    Falls back to single-filing data if XBRLS stitching raises an exception
+    (edgartools type bug on some IFRS 20-F filings)."""
+    tmpl = template_stmt.to_dataframe(view="standard")
+    try:
+        stitched = stitched_stmt.to_dataframe()
+    except Exception as e:
+        print(f"  [stitching failed: {e.__class__.__name__} — using latest filing only]", flush=True)
+        stitched = tmpl.copy()
+        rename = {
+            col: re.match(r"(\d{4}-\d{2}-\d{2})", col).group(1)
+            for col in stitched.columns
+            if re.match(r"\d{4}-\d{2}-\d{2}", col) and not re.match(r"\d{4}-\d{2}-\d{2}$", col)
+        }
+        stitched = stitched.rename(columns=rename)
     period_cols = sorted(_period_cols(stitched))
 
     for c in period_cols:
