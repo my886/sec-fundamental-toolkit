@@ -6,16 +6,13 @@
 
 ### Tier 1 — Build next
 
-- [ ] **`97_ratios.py` — Financial ratio time series**
-  Compute standard ratios from the already-extracted three statements and export
-  a multi-year trend table. Suggested metrics:
-  - Profitability: gross margin, operating margin, net margin, ROIC, ROE
-  - Leverage: net debt / EBITDA, interest coverage (EBIT / interest expense)
-  - Liquidity: current ratio, DSO, DIO, DPO, cash conversion cycle
-  - Valuation: FCF yield (use yfinance for market cap, same pattern as `02_qqq_owner_earnings.py`)
-
-  Reuse `_prepare_structured_df()` from `98_multiperiod_financials.py` for raw data.
-  Output: single Excel sheet, ratios as rows, fiscal years as columns.
+- [x] **`97_ratios.py` — Financial ratio time series** ✓ 2026-04-26
+  Computes 15 ratios (Profitability / Leverage / Liquidity / FCF) across N fiscal years
+  using XBRLS stitching; exports styled single-sheet Excel. Tested: AAPL, MU, GOOG, TSM, ASML.
+  **Limitations**:
+  - FCF yield is wrong for non-USD 20-F filers (FCF in reporting currency vs USD market cap)
+  - Some XBRLS concept-join gaps cause N/A for years where filers changed XBRL tags (GOOG FY2022-24, TSM FY2019-20)
+  - Interest coverage N/A for companies that net interest income/expense (AAPL, GOOG)
 
 - [ ] **`96_comps.py` — Comparable companies table**
   Run a peer group (list of tickers) and output one Excel sheet with key metrics
@@ -84,6 +81,19 @@
 ---
 
 ## Decisions log
+
+### 2026-04-26 — 97_ratios.py build and cross-filer tuning
+
+| Decision | Choice | Rationale |
+|---|---|---|
+| sc-exact only; no sc-contains | Removed sc-contains from `_get_item` | "NonCurrentAssets".contains("CurrentAssets") was a systematic false positive; sc-exact + label patterns are sufficient |
+| Tiebreaker: level then label length | Sort matches by (level asc, label_len asc) | Headline items are shallower (lower level) and shorter than supplemental disclosures; catches GOOG's capex supplemental note |
+| capex exclude_patterns | ["included in accrued", "non-cash"] | Filters GOOG's "included in accrued liabilities" note and MU's "Non-cash equipment acquisitions" |
+| Gross profit fallback | `revenue - cogs` when gross_prof not found | GOOG doesn't report a gross profit subtotal; identity always valid |
+| ROIC tax rate fallback | `1 - (net_income / pretax)` when tax_exp not found | MU doesn't label tax expense in a way we can match; effective rate from actuals is equivalent |
+| edgartools sc names | "CapitalExpenses", "DepreciationExpense", "TradeReceivables" | edgartools uses its own mapped sc names, not US GAAP concept names, for these three items |
+
+---
 
 ### 2026-04-26 — Add comprehensive income; defer statement of equity
 
