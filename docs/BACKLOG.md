@@ -14,13 +14,17 @@
   - Some XBRLS concept-join gaps cause N/A for years where filers changed XBRL tags (GOOG FY2022-24, TSM FY2019-20)
   - Interest coverage N/A for companies that net interest income/expense (AAPL, GOOG)
 
-- [ ] **`96_comps.py` — Comparable companies table**
+- [x] **`96_comps.py` — Comparable companies table** ✓ 2026-04-28
   Run a peer group (list of tickers) and output one Excel sheet with key metrics
-  side by side — the most recognisable equity research deliverable.
-  Suggested columns per company: revenue, gross margin %, EBIT margin %, ROIC,
-  net debt, EV/EBITDA (needs market cap + debt - cash).
-  Handle mixed 10-K / 20-F peers automatically (reuse form-detection pattern).
-  Output: `data/{PEER_GROUP}_comps.xlsx`
+  side by side. 6 metric sections: Trading, Income, Returns, Capital Structure,
+  Valuation, FCF. Market cap from yfinance; EDGAR XBRL for IS/BS/CF items.
+  Handles mixed 10-K / 20-F peers automatically; EV multiples marked N/A for
+  non-USD filers. Tested: 10-ticker semiconductor peer group (NVDA, AVGO, TSM, AMD,
+  QCOM, TXN, MU, INTC, AMAT, LRCX). Output: `data/{PEER_GROUP}_comps.xlsx`
+  **Limitations**:
+  - 20-F filers (TSM): absolute values in local currency (TWD); EV/FCF yield N/A
+  - Net cash balance uses cash & equivalents only — excludes short-term investments
+  - Market cap is live from yfinance, not period-end
 
 - [x] **`95_quarterly.py` — Quarterly data + LTM** ✓ 2026-04-26
   Use `company.get_quarterly_financials()` to pull 10-Q data and build:
@@ -81,6 +85,17 @@
 ---
 
 ## Decisions log
+
+### 2026-04-28 — 96_comps.py build
+
+| Decision | Choice | Rationale |
+|---|---|---|
+| Metrics source split | Market cap from yfinance; fundamentals from EDGAR XBRL | EDGAR has no real-time market data; yfinance `fast_info.market_cap` is a single API call |
+| EV multiples for 20-F filers | Mark N/A | 20-F filers report in local currency; adding FX conversion would require a separate data source and introduce staleness risk |
+| Net debt definition | Short-term debt + long-term debt - cash | Cash here is cash & equivalents only (not short-term investments) — simple and consistent across filers |
+| EBITDA fallback | `operating_income` when D&A not found | EBITDA calculation requires D&A; if D&A lookup fails, show EBIT as a conservative fallback rather than N/A |
+| Peer group structure | COMP_SECTIONS dict with per-row fmt strings | Allows arbitrary section headers and number formats per metric without any if/else in the render loop |
+| Standalone script (no imports from 97_ratios) | Duplicate `_get_item` / `_prepare_structured_df` | Avoids inter-script coupling; each example is a self-contained, runnable artefact |
 
 ### 2026-04-26 — 97_ratios.py build and cross-filer tuning
 
