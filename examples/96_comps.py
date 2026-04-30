@@ -378,8 +378,11 @@ def fetch_ticker_data(ticker: str, years: int) -> dict | None:
         prev_rev_v = v(revenue, prev) if prev else None
         prev_eq_v  = v(equity,  prev) if prev else None
 
-        total_debt_v = (std_v + ltd_v) if (st_debt is not None or lt_debt is not None) else None
-        net_debt_v   = (total_debt_v - cash_v) if total_debt_v is not None else None
+        # If no debt items found, assume zero debt (debt-free companies like MNST).
+        # Only skip net_debt entirely if we found none of cash/debt at all.
+        _any_bs_found = cash is not None or st_debt is not None or lt_debt is not None
+        total_debt_v  = std_v + ltd_v   # each already defaults to 0 via "or 0"
+        net_debt_v    = (total_debt_v - cash_v) if _any_bs_found else None
         ebitda_v     = (oi_v + abs(da_v)) if oi_v is not None and da_v is not None else oi_v
 
         fcf_v = (cfo_v - abs(capex_v)) if cfo_v is not None and capex_v is not None else cfo_v
