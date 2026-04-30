@@ -34,11 +34,15 @@
   **Limitation**: 6-K filers (SPOT, ASML, TSM) have no XBRL in interim reports — script
   raises a clear error. Use yfinance (`yf.Ticker(ticker).quarterly_financials`) for these.
 
-- [ ] **`95b_quarterly_yf.py` — Quarterly data for foreign issuers (yfinance fallback)**
+- [x] **`95b_quarterly_yf.py` — Quarterly data for foreign issuers (yfinance fallback)** ✓ 2026-04-30
   Same output format as `95_quarterly.py` but sourced from yfinance instead of EDGAR XBRL.
-  Target tickers: SPOT, ASML, TSM, and any 6-K filer without XBRL interim reports.
-  Key difference: yfinance returns restated numbers, not point-in-time SEC filings.
-  Note that difference clearly in the Excel title row.
+  Tested: ASML (EUR), SPOT (EUR), TSM (TWD). Curated row specs (IS/BS/CF), LTM = sum of
+  last 4 quarters, shares use latest-Q for LTM, currency from `financialCurrency` field.
+  **Limitations**:
+  - yfinance returns restated numbers, not point-in-time SEC filings
+  - Only ~6 quarters deep (yfinance limitation)
+  - TSM Q1 2026 IS data incomplete — LTM shows N/A when most recent quarter is missing
+  - No XBRL concept column (yfinance has no concept mapping)
 
 ### Tier 2 — Meaningful extensions
 
@@ -85,6 +89,16 @@
 ---
 
 ## Decisions log
+
+### 2026-04-30 — 95b_quarterly_yf.py build
+
+| Decision | Choice | Rationale |
+|---|---|---|
+| LTM = sum of last 4 quarters | Simple 4-quarter sum | yfinance quarterly data includes Q4 (unlike EDGAR 10-Q), so sum is always valid; no annual + stub formula needed |
+| Curated row specs instead of XBRL template | IS_SPEC / BS_SPEC / CF_SPEC dicts | yfinance has no XBRL concept metadata; curated list gives clean, consistent output across all tickers |
+| `financialCurrency` for currency label | `info.get("financialCurrency")` | `fast_info.currency` returns ADR trading currency (USD for TSM/ASML NYSE listings); `financialCurrency` correctly returns TWD and EUR |
+| `is_avg=True` for shares rows | Latest-Q for LTM instead of sum | Summing weighted-average shares over 4 quarters is meaningless; latest Q is the correct period-end share count |
+| Empty-section suppression | Trailing section headers dropped | Some companies lack certain rows (e.g. TSM missing R&D in some quarters); prevents orphan headers in Excel |
 
 ### 2026-04-28 — 96_comps.py build
 
