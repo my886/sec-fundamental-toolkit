@@ -42,7 +42,7 @@ from edgar import Company
 from edgar.financials import Financials
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-TICKER     = "SPOT"
+TICKER     = "KLAC" # KO, KLAC
 N_QUARTERS = 8    # quarterly periods to display
 N_FILINGS  = N_QUARTERS + 4  # total filings fetched; extra 4 needed for prior-year LTM lookup
 
@@ -80,6 +80,13 @@ def step(msg: str, t0: float) -> float:
 def _q_col(df: pd.DataFrame) -> str | None:
     """Most recent standalone-quarter column — format '2024-06-30 (Q2)'."""
     cols = sorted([c for c in df.columns if re.search(r"\(Q[1-4]\)$", c)], reverse=True)
+    return cols[0] if cols else None
+
+
+def _ytd_col(df: pd.DataFrame) -> str | None:
+    """Most recent YTD cumulative column — format '2024-12-31 (YTD)'.
+    Cash flow Q2/Q3 10-Qs use YTD labels instead of (Q2)/(Q3)."""
+    cols = sorted([c for c in df.columns if re.search(r"\(YTD\)$", c)], reverse=True)
     return cols[0] if cols else None
 
 
@@ -502,8 +509,11 @@ STMT_CONFIGS = {
 
 # Build quarterly lookup — one pass, all filings, all statements
 step(f"Extracting data from {len(filings)} individual {form_type} filings...", t_start)
-q_lookups   = {name: {} for name in STMT_CONFIGS}
-q_all_dates = {name: [] for name in STMT_CONFIGS}
+q_lookups    = {name: {} for name in STMT_CONFIGS}
+q_all_dates  = {name: [] for name in STMT_CONFIGS}
+# CF-specific: 10-Q cash flow is YTD for Q2/Q3; collect raw YTD values then derive standalones
+cf_ytd_lookup: dict = {}  # concept -> {date_str: raw_ytd_value}
+cf_ytd_dates:  list = []  # all CF dates collected from 10-Qs (Q1 standalone or Q2/Q3 YTD)
 n_parsed = 0
 
 for filing in filings:
@@ -517,22 +527,59 @@ for filing in filings:
                 stmt = getattr(fin, method)()
                 if stmt is None:
                     continue
-                df_raw      = stmt.to_dataframe(view="standard")
-                primary_col = _instant_col(df_raw) if is_bs else _q_col(df_raw)
-                if primary_col is None:
-                    continue
-                date_str = _end_date(primary_col)
-                if not date_str or date_str in q_all_dates[name]:
-                    continue
-                q_all_dates[name].append(date_str)
-                for concept, val in _extract_values(df_raw, primary_col).items():
-                    q_lookups[name].setdefault(concept, {})[date_str] = val
+                df_raw = stmt.to_dataframe(view="standard")
+
+                if name == "Cash Flow":
+                    # Q1 filings label CF as (Q1); Q2/Q3 label the YTD as (YTD).
+                    # Collect all into cf_ytd_lookup; standalone values computed below.
+                    primary_col = _q_col(df_raw) or _ytd_col(df_raw)
+                    if primary_col is None:
+                        continue
+                    date_str = _end_date(primary_col)
+                    if not date_str or date_str in cf_ytd_dates:
+                        continue
+                    cf_ytd_dates.append(date_str)
+                    for concept, val in _extract_values(df_raw, primary_col).items():
+                        cf_ytd_lookup.setdefault(concept, {})[date_str] = val
+                else:
+                    primary_col = _instant_col(df_raw) if is_bs else _q_col(df_raw)
+                    if primary_col is None:
+                        continue
+                    date_str = _end_date(primary_col)
+                    if not date_str or date_str in q_all_dates[name]:
+                        continue
+                    q_all_dates[name].append(date_str)
+                    for concept, val in _extract_values(df_raw, primary_col).items():
+                        q_lookups[name].setdefault(concept, {})[date_str] = val
             except Exception:
                 pass
     except Exception:
         pass
 
 step(f"Parsed {n_parsed}/{len(filings)} filings successfully", t_start)
+
+# ── Convert CF YTD to standalone quarterly values ────────────────────────────
+# Q1 (3-month) YTD = standalone.  Q2 = YTD[Q2] - YTD[Q1].  Q3 = YTD[Q3] - YTD[Q2].
+# A date gap <= 130 days between consecutive YTD dates = same fiscal year.
+cf_sorted = sorted(cf_ytd_dates)
+for i, date in enumerate(cf_sorted):
+    prev_date = cf_sorted[i - 1] if i > 0 else None
+    same_fy   = False
+    if prev_date:
+        dt      = datetime.strptime(date,      "%Y-%m-%d")
+        prev_dt = datetime.strptime(prev_date, "%Y-%m-%d")
+        same_fy = (dt - prev_dt).days <= 130
+    q_all_dates["Cash Flow"].append(date)
+    for concept, ytd_vals in cf_ytd_lookup.items():
+        curr = ytd_vals.get(date)
+        if curr is None:
+            continue
+        if same_fy:
+            prev = ytd_vals.get(prev_date)
+            val  = curr - prev if prev is not None else curr
+        else:
+            val = curr  # Q1 or first in FY: YTD == standalone
+        q_lookups["Cash Flow"].setdefault(concept, {})[date] = val
 
 for name in STMT_CONFIGS:
     q_all_dates[name] = sorted(q_all_dates[name])

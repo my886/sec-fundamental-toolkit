@@ -33,7 +33,7 @@ from edgar import Company
 from edgar.xbrl import XBRLS
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-TICKER = "AAPL"
+TICKER = "KO"
 YEARS  = 10
 SHOW_ITEM_MATCHES = False  # set True to print which IS/BS/CF row each lookup selects
 

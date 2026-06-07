@@ -32,7 +32,7 @@ from edgar import Company
 from edgar.xbrl import XBRLS
 
 # ── Configuration ────────────────────────────────────────────────────────────
-TICKER = "MU"
+TICKER = "KLAC"
 YEARS  = 5      # number of annual filings to stitch (older filings may lack XBRL)
 OPTIONAL_STMT_TIMEOUT = 60   # seconds before giving up on an optional statement
 
